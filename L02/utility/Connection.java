@@ -2,15 +2,20 @@ package utility;
 
 import java.io.IOException;
 import java.net.*;
+import java.util.Timer;
+import java.util.TimerTask;
+
 import utility.Side;
 
 
 public class Connection {
-	private MulticastSocket mulitcastSocket;
+	private MulticastSocket multicastSocket;
 	private InetAddress multicastAddress;
+	private int multicastPort;
 	private DatagramSocket socket;
 	private InetAddress destinationAddress = null;
 	private int destinationPort = -1;
+	private MulticastMessageSender multicastSender = null;
 	private Side type;
 	
 	/*public Connection(String hostname, int destPortNumber) throws SocketException, UnknownHostException {//Constructor called by client
@@ -31,23 +36,35 @@ public class Connection {
 		this.type = Side.SERVER;
 	}*/
 
-	public Connection(String mulitcastHostname, int multicastPort) {//Constructor called by client
-		this.multicastAddress = InetAddress.getByName(mulitcastHostname);
-		this.multicastPort = multicastPort;
+	public Connection(String multicastHostname, int multicastPort) throws IOException {//Constructor called by client
+		//check if multicast address is valid
+		this.multicastAddress = InetAddress.getByName(multicastHostname);
+		if(!this.multicastAddress.isMulticastAddress()) {
+			System.out.println("Error, this is not a multicast address");
+			throw new IOException();
+		}
 		
+		this.multicastPort = multicastPort;
+
 		//create mulitcast socket
 		this.multicastSocket = new MulticastSocket(this.multicastPort);
 		this.multicastSocket.setTimeToLive(1);
-		
+
 		//join multicast address
-		this.multicastSocket.joinGroup(this.multicastAddress);		
-		
+		this.multicastSocket.joinGroup(this.multicastAddress);	
+
 		this.socket = new DatagramSocket();
 		this.type = Side.CLIENT;
 	}
 	
-	public Connection(String mulitcastHostname, int multicastPort, int servicePort) {//Constructor called by server
+	public Connection(String multicastHostname, int multicastPort, int servicePort) throws IOException {//Constructor called by server
+		//check if multicast address is valid
 		this.multicastAddress = InetAddress.getByName(multicastHostname);
+		if(!this.multicastAddress.isMulticastAddress()) {
+			System.out.println("Error, this is not a multicast address");
+			throw new IOException();
+		}
+		
 		this.multicastPort = multicastPort;
 		
 		//create multicast socket
@@ -79,7 +96,7 @@ public class Connection {
 		String content = new String(packet.getData(), 0, packet.getLength());
 		return content;
 	}
-
+	
 	public void sendRequest(String message) throws IOException {
 		// packet
 		byte[] sbuf = message.getBytes();
@@ -93,31 +110,39 @@ public class Connection {
 			this.socket.setSoTimeout(5000);
 	}
 	
-	public void sendMulticastPacket(String message) {
+	public void sendMulticastPacket(String message) throws IOException {
 		// packet
 		byte[] sbuf = message.getBytes();
 		DatagramPacket packet = new DatagramPacket(sbuf, sbuf.length, this.multicastAddress, this.multicastPort);
 		
 		// send request
 		this.multicastSocket.send(packet);
-		System.out.println("Server sent packet to multicast with msg: " + message);
-
+		System.out.print("Server sent packet to multicast with msg: " + message);
 	}
 	
-	public String receiveMulticastPacket() {
+	public String receiveMulticastPacket() throws IOException {
 		// multicast message format "multicast: <mcast_addr> <mcast_port>: <srvc_addr> <srvc_port>"
-		final int maxPacketSize = 999;
+		final int maxPacketSize = 100;
 		
 		// packet
 		byte[] rbuf = new byte[maxPacketSize];
 		DatagramPacket packet = new DatagramPacket(rbuf, maxPacketSize);
-		
+
 		// receive multicast packet
 		this.multicastSocket.receive(packet);
-		
+
 		//extract response
-		String content = new String(packet.getData(), 0, packet.getLength());
+		String content = new String(packet.getData(), 0, packet.getLength());	
 		return content;
+	}
+	
+	public void setMulticastSender(String message) {
+		this.multicastSender = new MulticastMessageSender(message);
+	}
+	
+	public void setConnectionDestination(String hostname, int destinationPort) throws UnknownHostException {
+		this.destinationAddress = InetAddress.getByName(hostname);
+		this.destinationPort = destinationPort;
 	}
 	
 	public InetAddress getDestAddress() {
@@ -128,10 +153,13 @@ public class Connection {
 		return this.destinationPort;
 	}
 	
-	public void leaveMulticastGroup() {
+	public void leaveMulticastGroup() throws IOException {
 		this.multicastSocket.leaveGroup(this.multicastAddress);
 	}
-	public void close() {
+	public void close() throws IOException {
+		if(this.type == Side.CLIENT)
+			this.multicastSocket.leaveGroup(this.multicastAddress);
+		
 		this.socket.close();
 	}
 	
@@ -143,14 +171,38 @@ public class Connection {
 	    public MulticastMessageSender(String message) {
 	        this.message = message;
 	        this.timer = new Timer();
-	        this.timer.schedule(new MulticastTask(), 0, 1*1000);  //subsequent rate
-	        
+	        this.timer.schedule(new MulticastTask(), 0, 1*1000);   
 	    }
 
 	    class MulticastTask extends TimerTask {
 	        public void run() {
-	        	sendMulticastPacket(message);
+	        	try {
+					sendMulticastPacket(message);
+				} catch (IOException e) {
+					System.out.println("Error sending multicast packet");
+				}
 	        }
 	    }
+	}
+
+
+	public boolean verifyMulticastInfo(String mcastHostname, int mcastPort) {
+		return mcastHostname == this.multicastAddress.getHostAddress() && mcastPort == this.multicastPort;
+	}
+
+	public String getMulticastHostname() {
+		return this.multicastAddress.getHostAddress();
+	}
+
+	public int getMulticastPort() {
+		return this.multicastPort;
+	}
+
+	public String getSelfHostname() {
+		return this.socket.getLocalAddress().getHostAddress();
+	}
+
+	public int getSelfPort() {
+		return this.socket.getLocalPort();
 	}
 }

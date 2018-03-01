@@ -11,39 +11,44 @@ public class Client {
 			System.out.println("Wrong number of arguments");
 			return;
 		}
-		//extract args
+		
+		//extract and verify args
 		String multicastHostname = args[0];
 		int multicastPort = Integer.parseInt(args[1]);	
-		
-		//create connection
-		Connection connection;
-		try {
-			connection = new Connection(multicastHostname, multicastPort);
-		} catch (SocketException | UnknownHostException e) {
-			if(e instanceof SocketException)
-				System.out.println("Error creating socket");
-			if(e instanceof UnknownHostException)
-				System.out.println("Unknown hostname");
-			return;
-		}
-		
-		//create request string
 		String operation = args[2];
 		String operationArgs = args[3];
 		System.out.println("Operation: " + operation);
 		System.out.println("Arguments: " + operationArgs);
 		if(!checkMessage(operation, operationArgs))
-			return;	
+			return;
 		
-		//get multicast message
+		//create connection
+		Connection connection = null;
+		String multicastMessage = "";
 		try {
-			String multicastMessage = connection.receiveMulticastPacket();
-			System.out.println("Received multicast message: " + multicastMessage);
-		} catch (IOException e) {
-			System.out.println("Error sending request");
+			connection = new Connection(multicastHostname, multicastPort);
+		} catch (IOException e1) {
+			System.out.println("Error creating sockets");
 			return;
 		}
-				
+		
+		//receive multicast packet
+		try {
+			multicastMessage = connection.receiveMulticastPacket();
+			System.out.println("Received multicast message: " + multicastMessage);
+		} catch (IOException e) {
+			System.out.println("Error receiving multicast packet");
+			return;
+		}	
+		
+		//extract service info
+		try {
+			extractServerInfo(multicastMessage, connection);
+		} catch (UnknownHostException e1) {
+			System.out.println("Error establishing connection with server from multicast");
+			return;
+		}
+		
 		//send request for server
 		String message = operation + " " + operationArgs;
 		try {
@@ -61,7 +66,13 @@ public class Client {
 		} catch (Exception e) {
 			System.out.println("Too much time without receiving server response");
 		}
-		connection.close();
+		
+		//end connection
+		try {
+			connection.close();
+		} catch (IOException e) {
+			System.out.println("Error ending connection");
+		}
 	}
 	
 	public static boolean checkMessage(String operation, String operationArgs) {
@@ -85,5 +96,30 @@ public class Client {
 			return false;
 		}
 		return true;
+	}
+	
+	public static void extractServerInfo(String multicastMessage, Connection con) throws UnknownHostException {
+		//Check multicast message format
+		String multicastPattern = "^multicast: ([0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}) ([0-9]{1,5}): ([0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}) ([0-9]{1,5})$";
+		if(!multicastMessage.matches(multicastPattern)) {
+			System.out.println("Multicast message wrong format");
+			throw new UnknownHostException();
+		}
+		String[] divisions = multicastMessage.split(" ");
+		
+		//extract arguments from message
+		String multicastHostname = divisions[1];
+		int multicastPort = Integer.parseInt(divisions[2].substring(0, divisions[2].length() - 1));
+		String serverHostname = divisions[3];
+		int serverPort = Integer.parseInt(divisions[4]); 
+		
+		//verify multicast information
+		if(!con.verifyMulticastInfo(multicastHostname, multicastPort)) {
+			System.out.println("Multicast message info doesnt match multicast channel");
+			throw new UnknownHostException();
+		}
+		
+		//set connection properly
+		con.setConnectionDestination(serverHostname, serverPort);
 	}
 }

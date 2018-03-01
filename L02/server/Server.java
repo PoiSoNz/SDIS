@@ -27,15 +27,16 @@ public class Server {
 		System.out.print("Multicast port: " + multicastPort + "\n\n");
 		
 		//create connection and database
-		Connection connection;
+		Connection connection = null;
 		try {
 			connection = new Connection(multicastHostname, multicastPort, serverPort);
-		} catch (SocketException e) {
-			System.out.println("Couldn't create socket on this port");
-			return;
-		}	
+		} catch (IOException e1) {
+			System.out.println("Error creating socket");
+		}			
 		cars = new Hashtable<String, String>();
 		
+		//Create thread to send multicast messages
+		connection.setMulticastSender(getMulticastMessage(connection));
 		
 		//server cycle
 		while(true) {
@@ -62,6 +63,12 @@ public class Server {
 			}
 		}
 		//connection.close();
+	}
+
+	private static String getMulticastMessage(Connection connection) {
+		String multicastMessage = "multicast: " + connection.getMulticastHostname() + " " + connection.getMulticastPort() + ": " + connection.getSelfHostname() + " " + connection.getSelfPort();
+		System.out.println("multicast message: " + multicastMessage);
+		return multicastMessage;
 	}
 
 	public static int register(String plateNumber, String ownerName) {
@@ -105,5 +112,4 @@ public class Server {
 		}
 		return response;
 	}
-
 }
